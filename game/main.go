@@ -4,8 +4,9 @@ import (
 	"fmt"
 	"strings"
 
-	"gitlab.vk-golang.ru/vk-golang/lectures/01_intro/99_hw/game/room"
-	"gitlab.vk-golang.ru/vk-golang/lectures/01_intro/99_hw/game/user"
+	"github.com/Keniden/vk-homework/game/item"
+	"github.com/Keniden/vk-homework/game/room"
+	"github.com/Keniden/vk-homework/game/user"
 )
 
 /*
@@ -20,10 +21,14 @@ func initGame() {
 		эта функция инициализирует игровой мир - все комнаты
 		если что-то было - оно корректно перезатирается
 	*/
-	street := room.NewRoom("улица", "", "", []string{""})
-	kitchen := room.NewRoom("кухня", "ты находишься на кухне, ", "", []string{"чай"})
-	myRoom := room.NewRoom("комната", "", "ты в своей комнате. ", []string{"чай"})
-	hall := room.NewRoom("коридор", "", "ничего интересного. ", []string{})
+	street := room.NewRoom("улица", "", "на улице весна. ", []*item.Item{})
+	kitchen := room.NewRoom("кухня", "ты находишься на кухне, ", "", []*item.Item{})
+	myRoom := room.NewRoom("комната", "", "ты в своей комнате. ", []*item.Item{})
+	hall := room.NewRoom("коридор", "", "ничего интересного. ", []*item.Item{})
+
+	myRoom.AddBackpack()
+
+	hall.ItHall()
 
 	street.AddRout(hall)
 	kitchen.AddRout(hall)
@@ -32,7 +37,11 @@ func initGame() {
 	hall.AddRout(myRoom)
 	hall.AddRout(street)
 
-	gamer = user.NewUser(kitchen, []string{})
+	kitchen.AddItem("чай")
+
+	myRoom.AddItem("ключи")
+
+	gamer = user.NewUser(kitchen)
 
 }
 
@@ -48,6 +57,15 @@ func handleCommand(command string) string {
 		return gamer.Look()
 	case "идти":
 		return gamer.GoTo(cmd[1])
+
+	case "надеть":
+		return gamer.PutOnBackpack()
+	case "взять":
+		return gamer.Take(cmd[1])
+
+	case "применить":
+		return gamer.Use(cmd[1], cmd[2])
+
 	default:
 		return "неизвестная команда"
 	}
@@ -65,5 +83,5 @@ func main() {
 	fmt.Println(handleCommand("идти коридор"))
 	fmt.Println(handleCommand("идти комната"))
 	fmt.Println(handleCommand("осмотреться"))
-	fmt.Println(handleCommand("осмотреться"))
+
 }
