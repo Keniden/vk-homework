@@ -21,10 +21,10 @@ func initGame() {
 		эта функция инициализирует игровой мир - все комнаты
 		если что-то было - оно корректно перезатирается
 	*/
-	street := room.NewRoom("улица", "", "на улице весна. ", []*item.Item{})
-	kitchen := room.NewRoom("кухня", "ты находишься на кухне, ", "", []*item.Item{})
-	myRoom := room.NewRoom("комната", "", "ты в своей комнате. ", []*item.Item{})
-	hall := room.NewRoom("коридор", "", "ничего интересного. ", []*item.Item{})
+	street := room.NewRoom("улица", "", "на улице весна. ", "", []*item.Item{})
+	kitchen := room.NewRoom("кухня", "ты находишься на кухне, ", "", "надо собрать рюкзак и идти в универ.", []*item.Item{})
+	myRoom := room.NewRoom("комната", "", "ты в своей комнате. ", "", []*item.Item{})
+	hall := room.NewRoom("коридор", "", "ничего интересного. ", "", []*item.Item{})
 
 	myRoom.AddBackpack()
 
@@ -40,6 +40,7 @@ func initGame() {
 	kitchen.AddItem("чай")
 
 	myRoom.AddItem("ключи")
+	myRoom.AddItem("конспекты")
 
 	gamer = user.NewUser(kitchen)
 
@@ -79,9 +80,5 @@ func main() {
 		очень круто будет сделать построчный ввод команд тут, хотя это и не требуется по заданию
 	*/
 	initGame()
-	fmt.Println(handleCommand("осмотреться"))
-	fmt.Println(handleCommand("идти коридор"))
-	fmt.Println(handleCommand("идти комната"))
-	fmt.Println(handleCommand("осмотреться"))
-
+	fmt.Println(handleCommand("идти улица"))
 }

@@ -6,6 +6,7 @@ type Room struct {
 	Name     string
 	LookDesc string
 	GoDesc   string
+	MissionText string
 	Items    []*item.Item
 	ToGO     []*Room
 	Backpack bool
@@ -13,11 +14,12 @@ type Room struct {
 	Door     bool
 }
 
-func NewRoom(Name string, LookDesc string, GoDesc string, Items []*item.Item) *Room {
+func NewRoom(Name string, LookDesc string, GoDesc string, MissionText string, Items []*item.Item) *Room {
 	return &Room{
 		Name:     Name,
 		LookDesc: LookDesc,
 		GoDesc:   GoDesc,
+		MissionText: MissionText,
 		Items:    make([]*item.Item, 0),
 	}
 }

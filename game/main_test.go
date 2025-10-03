@@ -58,11 +58,6 @@ func TestGame0(t *testing.T) {
 		initGame()
 		for _, item := range commands {
 			answer := handleCommand(item.command)
-
-			// логируем шаг
-			t.Logf("case %d, step %d, cmd=%q → result=%q (expected=%q)",
-				caseNum, item.step, item.command, answer, item.answer)
-
 			if answer != item.answer {
 				t.Error("case:", caseNum, item.step,
 					"\n\tcmd:", item.command,
