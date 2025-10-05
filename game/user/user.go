@@ -37,27 +37,42 @@ func (u *User) Look() string {
 		}
 	}
 
-	tablePart := "на столе: "
-	if len(items) == 0 {
-		tablePart += "ничего"
+	var mainPart string
+	if r.Name == "комната" && len(items) == 0 && !r.Backpack {
+		mainPart = "пустая комната."
 	} else {
-		tablePart += strings.Join(items, ", ")
-	}
-
-	if r.Backpack {
-		tablePart += ", на стуле: рюкзак"
-	}
-	mainPart := r.LookDesc + tablePart
-	if r.MissionText != "" {
-		if !strings.HasSuffix(mainPart, ".") {
-			mainPart += ", " + r.MissionText
+		tablePart := "на столе: "
+		if len(items) == 0 {
+			tablePart += "ничего"
 		} else {
-			mainPart += " " + r.MissionText
+			tablePart += strings.Join(items, ", ")
 		}
-	}
 
-	if !strings.HasSuffix(mainPart, ".") {
-		mainPart += "."
+		if r.Backpack {
+			tablePart += ", на стуле: рюкзак"
+		}
+		mainPart = r.LookDesc + tablePart
+
+		mission := r.MissionText
+		if r.Name == "кухня" {
+			if u.Backpack {
+				mission = "надо идти в универ."
+			} else {
+				mission = "надо собрать рюкзак и идти в универ."
+			}
+		}
+
+		if mission != "" {
+			if !strings.HasSuffix(mainPart, ".") {
+				mainPart += ", " + mission
+			} else {
+				mainPart += " " + mission
+			}
+		}
+
+		if !strings.HasSuffix(mainPart, ".") {
+			mainPart += "."
+		}
 	}
 
 	exits := "можно пройти - "
@@ -84,7 +99,7 @@ func (u *User) GoTo(place string) string {
 			for _, r := range u.InPlace.ToGO {
 				toGo = append(toGo, r.Name)
 			}
-			if place == "улица" && u.InPlace.Name == "улица"{
+			if place == "улица" && u.InPlace.Name == "улица" {
 				return "на улице весна. можно пройти - домой"
 			}
 			return fmt.Sprintf("%sможно пройти - %s", p.GoDesc, strings.Join(toGo, ", "))
@@ -116,31 +131,29 @@ func (u *User) Take(item string) string {
 		if i.Name == item {
 			u.AddInInventory(i)
 			u.InPlace.Items = append(u.InPlace.Items[:idx], u.InPlace.Items[idx+1:]...)
+			return fmt.Sprintf("предмет добавлен в инвентарь: %s", item)
 		}
 	}
 
-	return fmt.Sprintf("предмет добавлен в инвентарь: %s", item)
+	return "нет такого"
 }
 
 func (u *User) Use(item1, item2 string) string {
-	if !u.Backpack {
-		return "нет рюкзака"
+	hasItem := false
+	for _, i := range u.Items {
+		if i.Name == item1 {
+			hasItem = true
+			break
+		}
 	}
-	isItem1 := true
+	if !hasItem {
+		return fmt.Sprintf("нет предмета в инвентаре - %s", item1)
+	}
 
-	// for _, i := range u.Items {
-	// 	if i.Name == item1 {
-	// 		isItem1 = true
-	// 	} else {
-	// 		return fmt.Sprintf("нет предмета в инвентаре - %s", item1)
-	// 	}
-	// }
-
-	if isItem1 && (item1 == "ключи" && item2 == "дверь") {
+	if item1 == "ключи" && item2 == "дверь" {
 		u.InPlace.UnlockDoor()
 		return "дверь открыта"
-	} else {
-		return "не к чему применить"
 	}
+	return "не к чему применить"
 
 }
