@@ -6,8 +6,11 @@ import (
     "io"
     "net/http"
     "net/http/httptest"
+    "net/url"
+    "strconv"
     "strings"
     "testing"
+    "time"
 )
 
 func setUsers(t *testing.T, us []User) {
@@ -24,6 +27,16 @@ func doReq(t *testing.T, method, target string) *httptest.ResponseRecorder {
     rr := httptest.NewRecorder()
     SearchServer(rr, req)
     return rr
+}
+
+func startSearchHTTPServer() (*httptest.Server, string, func()) {
+    ts := httptest.NewServer(http.HandlerFunc(SearchServer))
+    return ts, ts.URL, ts.Close
+}
+
+func startStubServer(h http.HandlerFunc) (*httptest.Server, string, func()) {
+    ts := httptest.NewServer(h)
+    return ts, ts.URL, ts.Close
 }
 
 func TestSearchServer_MethodNotAllowed(t *testing.T) {
@@ -183,6 +196,237 @@ func TestMakeLess(t *testing.T) {
     }
     if _, err := makeLess("Nope"); err == nil {
         t.Fatalf("expected invalid field error")
+    }
+}
+
+func TestMakeLess_EmptyField(t *testing.T) {
+    if _, err := makeLess(""); err == nil {
+        t.Fatalf("expected error for empty field")
+    }
+}
+
+func TestSearchServer_Unauthorized(t *testing.T) {
+    req := httptest.NewRequest(http.MethodGet, "/", nil)
+    rr := httptest.NewRecorder()
+    SearchServer(rr, req)
+    if rr.Code != http.StatusUnauthorized {
+        t.Fatalf("expected 401, got %d", rr.Code)
+    }
+}
+
+func TestFindUsers_SuccessNextPage(t *testing.T) {
+    setUsers(t, []User{{ID: 1, Name: "bbb"}, {ID: 2, Name: "Aaa"}, {ID: 3, Name: "ccc"}, {ID: 4, Name: "ddd"}})
+    _, urlStr, closeFn := startSearchHTTPServer()
+    defer closeFn()
+
+    cli := &SearchClient{URL: urlStr, AccessToken: "token"}
+    req := SearchRequest{Limit: 2, Offset: 0, Query: "", OrderField: "Name", OrderBy: OrderByAsc}
+    resp, err := cli.FindUsers(req)
+    if err != nil {
+        t.Fatalf("unexpected error: %v", err)
+    }
+    if resp == nil {
+        t.Fatalf("nil response")
+    }
+    if !resp.NextPage {
+        t.Fatalf("expected NextPage=true")
+    }
+    if len(resp.Users) != 2 {
+        t.Fatalf("expected 2 users, got %d", len(resp.Users))
+    }
+    if strings.ToLower(resp.Users[0].Name) > strings.ToLower(resp.Users[1].Name) {
+        t.Fatalf("expected users sorted by Name asc")
+    }
+}
+
+func TestFindUsers_BadOrderField(t *testing.T) {
+    setUsers(t, []User{{ID: 1, Name: "x"}, {ID: 2, Name: "y"}})
+    _, urlStr, closeFn := startSearchHTTPServer()
+    defer closeFn()
+
+    cli := &SearchClient{URL: urlStr, AccessToken: "token"}
+    req := SearchRequest{Limit: 2, Offset: 0, OrderField: "UnknownField", OrderBy: OrderByAsc}
+    _, err := cli.FindUsers(req)
+    if err == nil {
+        t.Fatalf("expected error, got nil")
+    }
+    want := "OrderFeld UnknownField invalid"
+    if err.Error() != want {
+        t.Fatalf("unexpected error: %v", err)
+    }
+}
+
+func TestFindUsers_BadAccessToken(t *testing.T) {
+    setUsers(t, []User{{ID: 1, Name: "a"}})
+    _, urlStr, closeFn := startSearchHTTPServer()
+    defer closeFn()
+
+    cli := &SearchClient{URL: urlStr, AccessToken: ""}
+    req := SearchRequest{Limit: 1}
+    _, err := cli.FindUsers(req)
+    if err == nil || err.Error() != "bad AccessToken" {
+        t.Fatalf("expected bad AccessToken error, got %v", err)
+    }
+}
+
+func TestFindUsers_Timeout(t *testing.T) {
+    h := func(w http.ResponseWriter, r *http.Request) {
+        time.Sleep(1500 * time.Millisecond)
+        w.WriteHeader(http.StatusOK)
+        _, _ = w.Write([]byte("[]"))
+    }
+    _, urlStr, closeFn := startStubServer(h)
+    defer closeFn()
+
+    cli := &SearchClient{URL: urlStr, AccessToken: "token"}
+    req := SearchRequest{Limit: 1}
+    _, err := cli.FindUsers(req)
+    if err == nil || !strings.HasPrefix(err.Error(), "timeout for ") {
+        t.Fatalf("expected timeout error, got %v", err)
+    }
+}
+
+func TestFindUsers_Server500(t *testing.T) {
+    h := func(w http.ResponseWriter, r *http.Request) {
+        http.Error(w, "boom", http.StatusInternalServerError)
+    }
+    _, urlStr, closeFn := startStubServer(h)
+    defer closeFn()
+
+    cli := &SearchClient{URL: urlStr, AccessToken: "token"}
+    req := SearchRequest{Limit: 1}
+    _, err := cli.FindUsers(req)
+    if err == nil || err.Error() != "SearchServer fatal error" {
+        t.Fatalf("expected fatal error, got %v", err)
+    }
+}
+
+func TestFindUsers_BadRequestInvalidJSON(t *testing.T) {
+    h := func(w http.ResponseWriter, r *http.Request) {
+        w.WriteHeader(http.StatusBadRequest)
+        _, _ = w.Write([]byte("oops"))
+    }
+    _, urlStr, closeFn := startStubServer(h)
+    defer closeFn()
+
+    cli := &SearchClient{URL: urlStr, AccessToken: "token"}
+    req := SearchRequest{Limit: 1}
+    _, err := cli.FindUsers(req)
+    if err == nil || !strings.HasPrefix(err.Error(), "cant unpack error json:") {
+        t.Fatalf("expected json unpack error, got %v", err)
+    }
+}
+
+func TestFindUsers_BadRequestUnknownError(t *testing.T) {
+    h := func(w http.ResponseWriter, r *http.Request) {
+        w.WriteHeader(http.StatusBadRequest)
+        _ = json.NewEncoder(w).Encode(map[string]string{"Error": "some other"})
+    }
+    _, urlStr, closeFn := startStubServer(h)
+    defer closeFn()
+
+    cli := &SearchClient{URL: urlStr, AccessToken: "token"}
+    _, err := cli.FindUsers(SearchRequest{Limit: 1})
+    if err == nil || !strings.HasPrefix(err.Error(), "unknown bad request error:") {
+        t.Fatalf("expected unknown bad request error, got %v", err)
+    }
+}
+
+func TestFindUsers_BadResultJSON(t *testing.T) {
+    h := func(w http.ResponseWriter, r *http.Request) {
+        w.WriteHeader(http.StatusOK)
+        _, _ = w.Write([]byte("not-json"))
+    }
+    _, urlStr, closeFn := startStubServer(h)
+    defer closeFn()
+
+    cli := &SearchClient{URL: urlStr, AccessToken: "token"}
+    req := SearchRequest{Limit: 1}
+    _, err := cli.FindUsers(req)
+    if err == nil || !strings.HasPrefix(err.Error(), "cant unpack result json:") {
+        t.Fatalf("expected result json unpack error, got %v", err)
+    }
+}
+
+func TestFindUsers_ParamValidation(t *testing.T) {
+    cli := &SearchClient{URL: "http://example.com", AccessToken: "token"}
+
+    _, err := cli.FindUsers(SearchRequest{Limit: -1})
+    if err == nil || err.Error() != "limit must be > 0" {
+        t.Fatalf("expected limit validation error, got %v", err)
+    }
+
+    _, err = cli.FindUsers(SearchRequest{Limit: 1, Offset: -2})
+    if err == nil || err.Error() != "offset must be > 0" {
+        t.Fatalf("expected offset validation error, got %v", err)
+    }
+}
+
+func TestFindUsers_NextPageFalse_WhenServerReturnsLessThanLimit(t *testing.T) {
+    h := func(w http.ResponseWriter, r *http.Request) {
+        q := r.URL.Query()
+        limStr := q.Get("limit")
+        lim, _ := strconv.Atoi(limStr)
+        if lim < 0 {
+            lim = 0
+        }
+        n := 0
+        if lim > 0 {
+            n = lim - 1
+        }
+        type outUser struct {
+            ID     int
+            Name   string
+            Age    int
+            About  string
+            Gender string
+        }
+        arr := make([]outUser, 0, n)
+        for i := 0; i < n; i++ {
+            arr = append(arr, outUser{ID: i + 1, Name: "User" + strconv.Itoa(i+1)})
+        }
+        w.Header().Set("Content-Type", "application/json")
+        _ = json.NewEncoder(w).Encode(arr)
+    }
+    _, urlStr, closeFn := startStubServer(h)
+    defer closeFn()
+
+    cli := &SearchClient{URL: urlStr, AccessToken: "token"}
+    req := SearchRequest{Limit: 3}
+    resp, err := cli.FindUsers(req)
+    if err != nil {
+        t.Fatalf("unexpected error: %v", err)
+    }
+    if resp.NextPage {
+        t.Fatalf("expected NextPage=false, got true")
+    }
+}
+
+func TestFindUsers_LimitCapAndIncrement(t *testing.T) {
+    h := func(w http.ResponseWriter, r *http.Request) {
+        u, _ := url.Parse(r.URL.String())
+        limStr := u.Query().Get("limit")
+        if limStr != "26" {
+            t.Fatalf("expected transmitted limit=26, got %s", limStr)
+        }
+        w.Header().Set("Content-Type", "application/json")
+        _, _ = w.Write([]byte("[]"))
+    }
+    _, urlStr, closeFn := startStubServer(h)
+    defer closeFn()
+
+    cli := &SearchClient{URL: urlStr, AccessToken: "token"}
+    _, err := cli.FindUsers(SearchRequest{Limit: 100})
+    if err != nil {
+        t.Fatalf("unexpected error: %v", err)
+    }
+}
+
+func TestFindUsers_UnknownError(t *testing.T) {
+    cli := &SearchClient{URL: "http://127.0.0.1:1", AccessToken: "token"}
+    _, err := cli.FindUsers(SearchRequest{Limit: 1})
+    if err == nil || !strings.HasPrefix(err.Error(), "unknown error ") {
+        t.Fatalf("expected unknown error prefix, got %v", err)
     }
 }
 
